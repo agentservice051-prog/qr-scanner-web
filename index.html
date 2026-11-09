@@ -169,7 +169,8 @@
   // ============================================================
   // ⚠️ ВАЖНО: ВСТАВЬТЕ СЮДА ВАШ URL ИЗ APPS SCRIPT (заканчивается на /exec)
   // ============================================================
-  const API_URL = 'https://script.google.com/macros/s/AKfycbzDFNAhpmTim1WbYK2AdlryveKqEOpBnboj7k_RCDbftPi-z7ob6jCNCa06Q8XITDga/exec'; 
+  // Используем CORS Proxy для обхода блокировки Google
+const API_URL = 'https://corsproxy.io/?' + encodeURIComponent('https://script.google.com/macros/s/AKfycbzDFNAhpmTim1WbYK2AdlryveKqEOpBnboj7k_RCDbftPi-z7ob6jCNCa06Q8XITDga/exec'); 
 
   let videoStream = null;
   let scanInterval = null;
@@ -181,28 +182,10 @@
   // ============================================================
   async function apiGet(action) {
   try {
-    // Добавляем случайный параметр, чтобы браузер не кэшировал запрос
-    const url = `${API_URL}?action=${action}&t=${Date.now()}`;
-    
-    const res = await fetch(url, {
-      method: 'GET',
-      mode: 'cors', // Явно указываем, что это кросс-доменный запрос
-      headers: {
-        'Accept': 'application/json'
-      }
-    });
-
-    if (!res.ok) throw new Error(`HTTP ошибка: ${res.status}`);
-    
-    const text = await res.text(); // Сначала читаем как текст
-    try {
-      const json = JSON.parse(text); // Пытаемся распарсить JSON
-      if (!json.success) throw new Error(json.error);
-      return json.data;
-    } catch (e) {
-      console.error("Ответ от сервера не является JSON:", text);
-      throw new Error("Сервер вернул некорректный ответ. Проверьте настройки Apps Script.");
-    }
+    const res = await fetch(`${API_URL}?action=${action}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    return json.data;
   } catch (err) {
     console.error("Ошибка GET запроса:", err);
     throw err;
@@ -212,14 +195,13 @@
   // ============================================================
 // ЗАПРОСЫ К API (Только через POST, чтобы обойти CORS)
 // ============================================================
-async function apiPost(action, payload = {}) {
+async function apiPost(action, payload) {
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action, ...payload })
     });
-    if (!res.ok) throw new Error(`HTTP ошибка: ${res.status}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
     return json.message;
