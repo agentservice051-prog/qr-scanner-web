@@ -193,21 +193,22 @@
   }
 
   async function apiPost(action, payload) {
-    try {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action, ...payload })
-      });
-      if (!res.ok) throw new Error(`HTTP ошибка: ${res.status}`);
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error);
-      return json.message;
-    } catch (err) {
-      console.error("Ошибка POST запроса:", err);
-      throw err;
-    }
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      // ВАЖНО: Меняем application/json на text/plain
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, ...payload })
+    });
+    if (!res.ok) throw new Error(`HTTP ошибка: ${res.status}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    return json.message;
+  } catch (err) {
+    console.error("Ошибка POST запроса:", err);
+    throw err;
   }
+}
 
   // ============================================================
   // ЗАГРУЗКА СПИСКА
