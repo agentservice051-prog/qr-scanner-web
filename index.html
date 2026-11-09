@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>QR Сканер</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #e8edf3; padding: 15px; max-width: 480px; margin: 0 auto; min-height: 100vh; }
+    .container { background: white; border-radius: 20px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    .header { text-align: center; margin-bottom: 20px; }
+    .header h1 { font-size: 26px; color: #1a1a2e; }
+    .card { background: #f8f9fc; border-radius: 14px; padding: 16px; margin: 12px 0; }
+    .card-title { font-size: 13px; font-weight: 600; color: #888; text-transform: uppercase; margin-bottom: 10px; }
+    .btn { display: block; width: 100%; padding: 15px; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; margin: 6px 0; transition: 0.2s; }
+    .btn:active { transform: scale(0.97); }
+    .btn-green { background: #34C759; color: white; }
+    .btn-blue { background: #007AFF; color: white; }
+    .btn-orange { background: #FF9500; color: white; }
+    .btn-red { background: #FF3B30; color: white; }
+    .input-group { display: flex; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
+    .input-group select, .input-group input { flex: 1; padding: 12px; border: 2px solid #e5e5ea; border-radius: 10px; font-size: 15px; }
+    #status { padding: 12px 16px; border-radius: 10px; margin: 10px 0; display: none; font-size: 14px; }
+    .status-success { background: #d4edda; color: #155724; display: block; }
+    .status-error { background: #f8d7da; color: #721c24; display: block; }
+    .status-info { background: #d1ecf1; color: #0c5460; display: block; }
+    .scanner-box { background: #1a1a2e; border-radius: 14px; padding: 30px 20px; text-align: center; color: white; min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    #video { width: 100%; border-radius: 12px; display: none; background: #000; max-height: 350px; object-fit: cover; }
+    .result-box { margin: 12px 0; padding: 14px; background: #f8f9fc; border-radius: 12px; border-left: 4px solid #34C759; display: none; }
+    .result-box input { width: 100%; padding: 10px; border: 1px solid #e5e5ea; border-radius: 8px; margin: 4px 0; }
+    .info-row { display: flex; justify-content: space-between; padding: 10px 14px; background: white; border-radius: 10px; margin: 8px 0; border: 1px solid #e5e5ea; }
+    .info-row .label { color: #888; font-size: 14px; }
+    .info-row .value { font-weight: 700; font-size: 18px; color: #1a1a2e; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header"><h1>📦 QR Сканер</h1></div>
+
+  <div class="card">
+    <div class="card-title">📷 Сканер</div>
+    <div class="scanner-box" id="scannerBox">
+      <span style="font-size:56px; margin-bottom:10px;">📷</span>
+      <button class="btn btn-green" id="scanBtn" onclick="startCamera()">▶ Запустить камеру</button>
+    </div>
+    <video id="video" autoplay playsinline muted></video>
+    <div class="result-box" id="resultBox">
+      <label>QR-код:</label>
+      <input type="text" id="qrResult" readonly>
+      <button class="btn btn-blue" onclick="confirmShipment()">✅ Подтвердить отгрузку</button>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="card">
+    <div class="card-title">✏️ Ручной ввод</div>
+    <select id="partSelect" onchange="onPartSelect()" style="width:100%; padding:12px; border-radius:10px; border:2px solid #e5e5ea; margin-bottom:8px;"></select>
+    
+    <div class="input-group">
+      <input type="number" id="qtyInput" value="1" min="1" style="max-width:90px;">
+      <button class="btn btn-blue" style="flex:1;" onclick="manualOperation('ship')">📦 Отгрузить</button>
+    </div>
+    
+    <div class="info-row">
+      <span class="label">📊 Доступно:</span>
+      <span class="value" id="availableDisplay">-</span>
+    </div>
+
+    <button class="btn btn-green" onclick="manualOperation('receive')">📥 Принять на склад</button>
+    <button class="btn btn-red" onclick="manualOperation('writeOff')">🗑️ Списать (Брак/Утеря)</button>
+  </div>
+
+  <button class="btn btn-outline" onclick="loadParts()" style="background:transparent; border:2px solid #007AFF; color:#007AFF;">🔄 Обновить список</button>
+</div>
+
+<script>
+  // ============================================================
+  // ВАЖНО: ВСТАВЬТЕ СЮДА URL ВАШЕГО ВЕБ-ПРИЛОЖЕНИЯ APPS SCRIPT
+  // Он должен заканчиваться на /exec
+  // ============================================================
+  const API_URL = 'ВАШ_URL_APPS_SCRIPT'; 
+
+  let videoStream = null;
+  let scanInterval = null;
+  let scannedData = null;
+  let partList = [];
+
+  // ============================================================
+  // API ЗАПРОСЫ
+  // ============================================================
+  async function apiGet(action) {
+    const res = await fetch(`${API_URL}?action=${action}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    return json.data;
+  }
+
+  async function apiPost(action, payload) {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      // Используем text/plain, чтобы избежать preflight (CORS) проблем с GAS
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action, ...payload })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    return json.message;
+  }
+
+  // ============================================================
+  // ЗАГРУЗКА СПИСКА
+  // ============================================================
+  async function loadParts() {
+    const select = document.getElementById('partSelect');
+    select.innerHTML = '<option value="">⏳ Загрузка...</option>';
+    try {
+      partList = await apiGet('getParts');
+      select.innerHTML = '<option value="">Выберите парт-номер...</option>';
+      partList.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.partNumber;
+        opt.textContent = `${p.partNumber} (${p.available} шт.)`;
+        select.appendChild(opt);
+      });
+      showStatus('success', `✅ Загружено ${partList.length} парт-номеров`);
+    } catch (err) {
+      select.innerHTML = '<option value="">❌ Ошибка</option>';
+      showStatus('error', 'Ошибка: ' + err.message);
+    }
+  }
+
+  function onPartSelect() {
+    const select = document.getElementById('partSelect');
+    const selected = select.value;
+    const display = document.getElementById('availableDisplay');
+    if (!selected) { display.textContent = '-'; return; }
+    const part = partList.find(p => p.partNumber === selected);
+    display.textContent = part ? (part.available || 0) : '?';
+  }
+
+  // ============================================================
+  // КАМЕРА
+  // ============================================================
+  async function startCamera() {
+    const video = document.getElementById('video');
+    try {
+      videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      video.srcObject = videoStream;
+      video.style.display = 'block';
+      document.getElementById('scannerBox').style.display = 'none';
+      
+      if (scanInterval) clearInterval(scanInterval);
+      scanInterval = setInterval(() => scanQR(video), 500);
+      showStatus('info', '📷 Наведите на QR-код...');
+    } catch (err) {
+      showStatus('error', 'Камера недоступна: ' + err.message);
+    }
+  }
+
+  function scanQR(video) {
+    if (!video.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height);
+    
+    if (code && code.data) {
+      scannedData = code.data;
+      document.getElementById('qrResult').value = code.data;
+      document.getElementById('resultBox').style.display = 'block';
+      stopCamera();
+      showStatus('success', '✅ QR-код распознан!');
+    }
+  }
+
+  function stopCamera() {
+    if (scanInterval) clearInterval(scanInterval);
+    if (videoStream) videoStream.getTracks().forEach(t => t.stop());
+    document.getElementById('video').style.display = 'none';
+    document.getElementById('scannerBox').style.display = 'flex';
+  }
+
+  // ============================================================
+  // ОТГРУЗКА ПО QR
+  // ============================================================
+  async function confirmShipment() {
+    if (!scannedData) return;
+    const parts = scannedData.split('|');
+    if (parts.length !== 2) {
+      showStatus('error', 'Неверный формат QR-кода');
+      return;
+    }
+    try {
+      const msg = await apiPost('ship', { partNumber: parts[0], quantity: 1 });
+      showStatus('success', msg);
+      scannedData = null;
+      document.getElementById('resultBox').style.display = 'none';
+      loadParts();
+    } catch (err) {
+      showStatus('error', err.message);
+    }
+  }
+
+  // ============================================================
+  // РУЧНЫЕ ОПЕРАЦИИ
+  // ============================================================
+  async function manualOperation(action) {
+    const part = document.getElementById('partSelect').value;
+    const qty = parseInt(document.getElementById('qtyInput').value);
+    if (!part || !qty || qty < 1) {
+      showStatus('error', 'Выберите парт-номер и количество');
+      return;
+    }
+    try {
+      const msg = await apiPost(action, { partNumber: part, quantity: qty });
+      showStatus('success', msg);
+      document.getElementById('qtyInput').value = '1';
+      loadParts();
+    } catch (err) {
+      showStatus('error', err.message);
+    }
+  }
+
+  // ============================================================
+  // СТАТУС
+  // ============================================================
+  function showStatus(type, msg) {
+    const el = document.getElementById('status');
+    el.className = 'status-' + type;
+    el.textContent = msg;
+  }
+
+  // ============================================================
+  // СТАРТ
+  // ============================================================
+  loadParts();
+</script>
+</body>
+</html>
